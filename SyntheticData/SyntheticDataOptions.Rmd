@@ -1,0 +1,112 @@
+---
+title: Synthetic Data
+output:
+  html_document: 
+    df_print: paged
+---
+
+# Synthetic Data
+
+Our goal is to create a set of customer data that looks "real" - either record by record, or as a whole dataset.
+
+## Record Level Synthetic Data
+
+### charlatan
+
+`charlatan` is a package that feels a bit incomplete, but very easily generates a lot of useful sequences of data, from names and phones numbers, latitudes and longitudes, to genetic sequences and scientific names.
+
+For example, here's synthetic data generated for 10 customers, with:
+
+ - Names that might not be clean (e.g. may have titles or qualifications)
+ - One job that is written in French
+ - Phone numbers in multiple locales, with missingness
+ - Credit card numbers
+
+```{r charlatan}
+library(charlatan)
+
+set.seed(1)
+
+customers <- data.frame(
+  Name = ch_name(10, messy=TRUE),
+  Job = c(ch_job(9), ch_job(locale="fr_FR")),
+  Contact = MissingDataProvider$new()$make_missing(ch_phone_number(10)),
+  CreditCard = ch_credit_card_number(10)
+)
+
+customers
+
+```
+
+## Dataset Level Synthetic Data
+
+### fabricatr
+
+`fabricatr` enables simple relationships between variables to be specified, but needs some effort put in.
+
+For each of the 10 customers above we'll generate 10 transactions:
+
+ - Uniformly distributed throughout the year
+ - Where each customer generally increases their payments through the year,
+ - Where each customer has a general level of payment, and
+ - The minimum payment is approximately 5
+
+```{r fabricatr}
+library(fabricatr)
+
+set.seed(1)
+
+customer_transactions <- fabricate(
+  N = 100,
+  Name = rep(customers$Name, 10),
+  DayOfYear = draw_categorical(prob=matrix(1/365, 100, 365)),
+  Payment = round(
+    draw_normal_icc(
+      mean = 5, 
+      sd = 1, 
+      N = N, 
+      clusters = Name, 
+      ICC = 0.9)
+    * DayOfYear/20 + 
+    pmax(
+      draw_normal_icc(
+        mean = 20, 
+        sd = 20, 
+        N = N, 
+        clusters = Name, 
+        ICC = 0.6), 
+      5 + rgamma(100, 1)
+      ), 
+    2)
+)
+
+customer_transactions[order(customer_transactions$Payment),]
+```
+
+```{r, echo=FALSE}
+library(ggplot2)
+library(gridExtra)
+
+g1 <- ggplot(data = customer_transactions, aes(x = DayOfYear, y = Payment, colour = Name)) + geom_point() + geom_line()
+
+g1
+```
+
+## synthpop
+
+`synthpop` also generates synthetic datasets, but in a very straightforward way - taking a sample dataset and producing a dataset that looks pretty similar to the sample data.
+
+Below we try this on the transactions dataset that was generated above.
+
+```{r synthpop}
+library(synthpop)
+
+customer_transactions2 <- syn(customer_transactions[,-1], seed = 1)$syn
+
+customer_transactions2[order(customer_transactions2$Payment),]
+```
+```{r, echo=FALSE, out.width = "150%"}
+g2 <- ggplot(data = customer_transactions2, aes(x = DayOfYear, y = Payment, colour = Name)) + geom_point() + geom_line() + theme(legend.position = 'none')
+
+grid.arrange(g1 + theme(legend.position = 'none'), g2, ncol=2)
+```
